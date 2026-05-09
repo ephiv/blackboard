@@ -168,6 +168,7 @@
     display: none;
     z-index: 500;
     white-space: pre;
+    overflow-x: hidden;
     field-sizing: content; /* modern browsers: auto-grow with no JS */
   }
 
@@ -790,7 +791,7 @@
   const textMirror = document.createElement('div');
   Object.assign(textMirror.style, {
     position: 'fixed', visibility: 'hidden', pointerEvents: 'none',
-    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+    whiteSpace: 'pre',
     fontFamily: 'JetBrains Mono, monospace', lineHeight: '1.55',
     padding: '0', border: 'none', top: '-9999px', left: '-9999px',
   });
