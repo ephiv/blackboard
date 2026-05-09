@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>board</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1a1a18;
+    --chalk: #e8e4d9;
+    --chalk-dim: rgba(232,228,217,0.15);
+    --chalk-mid: rgba(232,228,217,0.45);
+    --accent: #7eb8a4;
+    --danger: #c4785a;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    cursor: none;
+  }
+
+  #canvas {
+    position: fixed; inset: 0;
+    touch-action: none;
+  }
+
+  /* Ghost cursor */
+  #cursor {
+    position: fixed;
+    pointer-events: none;
+    z-index: 1000;
+    transform: translate(-50%, -50%);
+    transition: width 0.1s, height 0.1s, opacity 0.15s;
+  }
+
+  #cursor .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--chalk);
+    opacity: 0.7;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  #cursor .ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: 1px solid rgba(232,228,217,0.25);
+    transition: width 0.08s, height 0.08s;
+  }
+
+  /* Mode indicator — ghost HUD */
+  #hud {
+    position: fixed;
+    bottom: 28px; right: 32px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 300;
+    letter-spacing: 0.12em;
+    color: var(--chalk-mid);
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
+    text-align: right;
+    line-height: 1.8;
+    user-select: none;
+  }
+
+  #hud.visible { opacity: 1; }
+
+  #hud .mode-label {
+    font-size: 13px;
+    color: var(--chalk);
+    letter-spacing: 0.12em;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  #hud .hint {
+    display: block;
+    color: var(--chalk-dim);
+    font-size: 10px;
+  }
+
+  /* Size picker ghost */
+  #size-indicator {
+    position: fixed;
+    bottom: 28px; left: 32px;
+    display: flex; align-items: center; gap: 8px;
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
+  }
+
+  #size-indicator.visible { opacity: 1; }
+
+  .size-dot {
+    border-radius: 50%;
+    background: var(--chalk);
+    opacity: 0.3;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+
+  .size-dot.active {
+    opacity: 0.85;
+    transform: scale(1.2);
+  }
+
+  /* Color swatches ghost */
+  #color-strip {
+    position: fixed;
+    top: 50%; right: 32px;
+    transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 7px;
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
+  }
+
+  #color-strip.visible { opacity: 1; }
+
+  .swatch {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    opacity: 0.4;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+
+  .swatch.active {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+
+  /* Undo flash */
+  #undo-flash {
+    position: fixed;
+    inset: 0;
+    background: rgba(232,228,217,0.03);
+    pointer-events: none;
+    opacity: 0;
+    z-index: 999;
+  }
+
+  /* Text input overlay */
+  #text-input {
+    position: fixed;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: var(--mono);
+    color: var(--chalk);
+    caret-color: var(--chalk);
+    resize: none;
+    overflow: hidden;
+    min-width: 4px;
+    line-height: 1.55;
+    padding: 0;
+    display: none;
+    z-index: 500;
+    white-space: pre;
+    field-sizing: content; /* modern browsers: auto-grow with no JS */
+  }
+
+  /* Keyboard reference modal */
+  #keys-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10,10,9,0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: 1999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+
+  #keys-backdrop.open {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  #keys {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -46%);
+    z-index: 2000;
+    font-family: var(--mono);
+    color: var(--chalk);
+    background: #1e1e1b;
+    border: 1px solid rgba(232,228,217,0.09);
+    border-radius: 10px;
+    padding: 32px 36px 28px;
+    width: 420px;
+    max-width: calc(100vw - 48px);
+    box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03) inset;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+
+  #keys.open {
+    opacity: 1;
+    pointer-events: all;
+    transform: translate(-50%, -50%);
+  }
+
+  #keys-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 26px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(232,228,217,0.07);
+  }
+
+  #keys h2 {
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--chalk-mid);
+    font-weight: 300;
+    margin: 0;
+  }
+
+  #keys-close {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: rgba(232,228,217,0.2);
+    letter-spacing: 0.12em;
+    background: rgba(232,228,217,0.05);
+    border: 1px solid rgba(232,228,217,0.08);
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  #keys-close:hover {
+    color: var(--chalk-mid);
+    background: rgba(232,228,217,0.09);
+  }
+
+  #keys-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 28px;
+  }
+
+  #keys-grid > div {
+    grid-column: 1 / -1;
+  }
+
+  .key-row {
+    display: flex;
+    align-items: center;
+    padding: 5px 0;
+    gap: 12px;
+  }
+
+  .key-row kbd {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 400;
+    background: rgba(232,228,217,0.06);
+    border: 1px solid rgba(232,228,217,0.11);
+    border-bottom-width: 2px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+    min-width: 32px;
+    text-align: center;
+    color: var(--chalk);
+    flex-shrink: 0;
+    line-height: 1.6;
+  }
+
+  .key-row span {
+    font-size: 11px;
+    color: rgba(232,228,217,0.38);
+    letter-spacing: 0.03em;
+    font-weight: 300;
+  }
+
+  .key-section {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    color: rgba(232,228,217,0.15);
+    margin: 18px 0 6px;
+    grid-column: 1 / -1;
+  }
+
+  .key-section:first-child { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="cursor"><div class="dot"></div><div class="ring"></div></div>
+<div id="hud">
+  <span class="mode-label" id="hud-mode">PEN</span>
+  <span class="hint" id="hud-hint">draw freely</span>
+</div>
+<div id="size-indicator"></div>
+<div id="color-strip"></div>
+<div id="undo-flash"></div>
+<textarea id="text-input" rows="1" spellcheck="false"></textarea>
+
+<div id="keys-backdrop"></div>
+<div id="keys">
+  <div id="keys-header">
+    <h2>controls</h2>
+    <div id="keys-close">Tab ↑</div>
+  </div>
+  <div id="keys-grid">
+    <div class="key-section">tools</div>
+    <div class="key-row"><kbd>p</kbd><span>pen</span></div>
+    <div class="key-row"><kbd>e</kbd><span>eraser</span></div>
+    <div class="key-row"><kbd>t</kbd><span>text</span></div>
+    <div class="key-row"><kbd>r</kbd><span>rectangle</span></div>
+    <div class="key-row"><kbd>o</kbd><span>circle</span></div>
+    <div class="key-row"><kbd>a</kbd><span>arrow</span></div>
+    <div class="key-row"><kbd>l</kbd><span>line</span></div>
+    <div class="key-section">canvas</div>
+    <div class="key-row"><kbd>Space</kbd><span>pan (hold + drag)</span></div>
+    <div class="key-row"><kbd>Scroll</kbd><span>zoom</span></div>
+    <div class="key-row"><kbd>0</kbd><span>reset view</span></div>
+    <div class="key-section">editing</div>
+    <div class="key-row"><kbd>⌘Z</kbd><span>undo</span></div>
+    <div class="key-row"><kbd>⌘⇧Z</kbd><span>redo</span></div>
+    <div class="key-row"><kbd>⌘A</kbd><span>clear board</span></div>
+    <div class="key-section">brush</div>
+    <div class="key-row"><kbd>1–7</kbd><span>color</span></div>
+    <div class="key-row"><kbd>[</kbd><span>size down</span></div>
+    <div class="key-row"><kbd>]</kbd><span>size up</span></div>
+    <div class="key-section">text mode</div>
+    <div class="key-row"><kbd>Tab</kbd><span>indent (2 spaces)</span></div>
+    <div class="key-row"><kbd>⇧Tab</kbd><span>dedent</span></div>
+    <div class="key-row"><kbd>Esc</kbd><span>commit text</span></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const cursorEl = document.getElementById('cursor');
+  const cursorRing = cursorEl.querySelector('.ring');
+  const hud = document.getElementById('hud');
+  const hudMode = document.getElementById('hud-mode');
+  const hudHint = document.getElementById('hud-hint');
+  const sizeEl = document.getElementById('size-indicator');
+  const colorEl = document.getElementById('color-strip');
+  const undoFlash = document.getElementById('undo-flash');
+  const textInput = document.getElementById('text-input');
+  const keysPanel = document.getElementById('keys');
+  const keysBackdrop = document.getElementById('keys-backdrop');
+  document.getElementById('keys-close').addEventListener('click', closeKeys);
+  keysBackdrop.addEventListener('click', closeKeys);
+
+  function openKeys() { keysPanel.classList.add('open'); keysBackdrop.classList.add('open'); }
+  function closeKeys() { keysPanel.classList.remove('open'); keysBackdrop.classList.remove('open'); }
+  function toggleKeys() { keysPanel.classList.contains('open') ? closeKeys() : openKeys(); }
+
+  // ── STATE ──────────────────────────────────────────────────
+  const COLORS = ['#e8e4d9','#7eb8a4','#c4785a','#8da8c7','#c4a75a','#b07ec4','#888'];
+  const SIZES  = [2, 4, 8, 16];
+  const MODES  = { PEN:'pen', ERASER:'eraser', TEXT:'text', RECT:'rect', CIRCLE:'circle', ARROW:'arrow', LINE:'line' };
+  const HINTS  = { pen:'draw freely', eraser:'erase', text:'esc to commit · tab to indent', rect:'drag shape', circle:'drag shape', arrow:'drag arrow', line:'drag line' };
+
+  let mode     = 'pen';
+  let colorIdx = 0;
+  let sizeIdx  = 1;
+  let drawing  = false;
+  let panning  = false;
+  let spaceHeld= false;
+  let mx = 0, my = 0; // mouse screen coords
+  let panStart = { x: 0, y: 0 };
+  let view     = { x: 0, y: 0, scale: 1 };
+  let strokes  = [];   // committed strokes
+  let undone   = [];   // redo stack
+  let current  = null; // active stroke being drawn
+  let ghostAnchor = null;
+  let hudTimer = null;
+  let textNode = null;
+  let lastPtTime = 0;  // for velocity-based pressure
+  let lastPtX = 0, lastPtY = 0;
+  let fadingStrokes = []; // { stroke, alpha, startTime }
+  let rafId = null;
+
+  // ── RESIZE ────────────────────────────────────────────────
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+    redraw();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ── COORD HELPERS ─────────────────────────────────────────
+  function toWorld(sx, sy) {
+    return { x: (sx - view.x) / view.scale, y: (sy - view.y) / view.scale };
+  }
+  function toScreen(wx, wy) {
+    return { x: wx * view.scale + view.x, y: wy * view.scale + view.y };
+  }
+
+  // ── DRAW ──────────────────────────────────────────────────
+  function redraw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid();
+
+    ctx.save();
+    ctx.translate(view.x, view.y);
+    ctx.scale(view.scale, view.scale);
+
+    for (const s of strokes) renderStroke(s);
+    // Fading strokes (rendered at their current alpha)
+    for (const f of fadingStrokes) {
+      ctx.globalAlpha = f.alpha;
+      renderStroke(f.stroke);
+      ctx.globalAlpha = 1;
+    }
+    if (current) renderStroke(current);
+
+    ctx.restore();
+  }
+
+  // Fade-out animation: runs only while there are fading strokes
+  function tickFade(now) {
+    if (fadingStrokes.length === 0) { rafId = null; return; }
+    const FADE_MS = 280;
+    fadingStrokes = fadingStrokes.filter(f => {
+      f.alpha = Math.max(0, f.alpha * (1 - (now - f.startTime) / FADE_MS * 1.6));
+      f.startTime = now;
+      return f.alpha > 0.005;
+    });
+    redraw();
+    rafId = requestAnimationFrame(tickFade);
+  }
+
+  function drawGrid() {
+    const gridSize = 48 * view.scale;
+    const offX = view.x % gridSize;
+    const offY = view.y % gridSize;
+    ctx.strokeStyle = 'rgba(232,228,217,0.04)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = offX; x < canvas.width; x += gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); }
+    for (let y = offY; y < canvas.height; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); }
+    ctx.stroke();
+  }
+
+  function renderStroke(s) {
+    ctx.save();
+    ctx.strokeStyle = s.color;
+    ctx.fillStyle   = s.color;
+    ctx.lineWidth   = s.size;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    ctx.globalAlpha = s.opacity ?? 1;
+
+    if (s.type === 'pen') {
+      if (s.pts.length < 2) {
+        ctx.beginPath();
+        ctx.arc(s.pts[0].x, s.pts[0].y, (s.pts[0].w || s.size)/2, 0, Math.PI*2);
+        ctx.fill();
+      } else {
+        // Variable-width stroke: each segment uses the width stored on the point
+        for (let i = 1; i < s.pts.length; i++) {
+          const a = s.pts[i-1], b = s.pts[i];
+          const w = ((a.w || s.size) + (b.w || s.size)) / 2;
+          ctx.beginPath();
+          ctx.lineWidth = w;
+          if (i === 1) {
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+          } else {
+            const prev = s.pts[i-2];
+            const mx0 = (prev.x + a.x) / 2, my0 = (prev.y + a.y) / 2;
+            const mx1 = (a.x + b.x) / 2,   my1 = (a.y + b.y) / 2;
+            ctx.moveTo(mx0, my0);
+            ctx.quadraticCurveTo(a.x, a.y, mx1, my1);
+          }
+          ctx.stroke();
+        }
+        ctx.lineWidth = s.size; // restore
+      }
+    } else if (s.type === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalAlpha = 1;
+      if (s.pts.length < 2) {
+        ctx.beginPath(); ctx.arc(s.pts[0].x, s.pts[0].y, s.size/2, 0, Math.PI*2); ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(s.pts[0].x, s.pts[0].y);
+        for (let i = 1; i < s.pts.length; i++) ctx.lineTo(s.pts[i].x, s.pts[i].y);
+        ctx.stroke();
+      }
+    } else if (s.type === 'rect') {
+      ctx.strokeRect(s.x, s.y, s.w, s.h);
+    } else if (s.type === 'circle') {
+      ctx.beginPath();
+      ctx.ellipse(s.cx, s.cy, Math.abs(s.rx), Math.abs(s.ry), 0, 0, Math.PI*2);
+      ctx.stroke();
+    } else if (s.type === 'line') {
+      ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke();
+    } else if (s.type === 'arrow') {
+      drawArrow(ctx, s.x1, s.y1, s.x2, s.y2, s.size);
+    } else if (s.type === 'text') {
+      ctx.font = `${s.fontSize}px JetBrains Mono, monospace`;
+      ctx.fillStyle = s.color;
+      ctx.globalAlpha = 1;
+      const lines = s.text.split('\n');
+      lines.forEach((line, i) => ctx.fillText(line, s.x, s.y + i * s.fontSize * 1.5));
+    }
+    ctx.restore();
+  }
+
+  function drawArrow(ctx, x1, y1, x2, y2, lw) {
+    const dx = x2-x1, dy = y2-y1;
+    const len = Math.hypot(dx,dy);
+    if (len < 2) return;
+    const ux = dx/len, uy = dy/len;
+    const hw = Math.max(lw*4, 10);
+    const hl = Math.max(lw*8, 16);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2 - ux*hl*0.5, y2 - uy*hl*0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ux*hl - uy*hw, y2 - uy*hl + ux*hw);
+    ctx.lineTo(x2 - ux*hl + uy*hw, y2 - uy*hl - ux*hw);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ── HUD ───────────────────────────────────────────────────
+  function showHud() {
+    hudMode.textContent = mode.toLowerCase();
+    hudHint.textContent = HINTS[mode] || '';
+    hud.classList.add('visible');
+    sizeEl.classList.add('visible');
+    colorEl.classList.add('visible');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => {
+      hud.classList.remove('visible');
+      sizeEl.classList.remove('visible');
+      colorEl.classList.remove('visible');
+    }, 1800);
+  }
+
+  function buildSizeEl() {
+    sizeEl.innerHTML = '';
+    SIZES.forEach((s,i) => {
+      const d = document.createElement('div');
+      d.className = 'size-dot' + (i === sizeIdx ? ' active' : '');
+      d.style.width = d.style.height = (s + 2) + 'px';
+      sizeEl.appendChild(d);
+    });
+  }
+
+  function buildColorEl() {
+    colorEl.innerHTML = '';
+    COLORS.forEach((c,i) => {
+      const d = document.createElement('div');
+      d.className = 'swatch' + (i === colorIdx ? ' active' : '');
+      d.style.background = c;
+      colorEl.appendChild(d);
+    });
+  }
+
+  buildSizeEl(); buildColorEl();
+
+  // ── CURSOR ────────────────────────────────────────────────
+  function updateCursor(x, y) {
+    cursorEl.style.left = x + 'px';
+    cursorEl.style.top  = y + 'px';
+    const sz = SIZES[sizeIdx] * view.scale;
+    const rSz = Math.max(sz + 4, 14);
+    cursorRing.style.width  = rSz + 'px';
+    cursorRing.style.height = rSz + 'px';
+    cursorEl.querySelector('.dot').style.display = mode === 'eraser' ? 'none' : 'block';
+    if (mode === 'eraser') {
+      cursorRing.style.border = '1.5px solid rgba(196,120,90,0.5)';
+    } else if (panning || spaceHeld) {
+      cursorRing.style.border = '1px solid rgba(232,228,217,0.15)';
+    } else {
+      cursorRing.style.border = '1px solid rgba(232,228,217,0.25)';
+    }
+  }
+
+  // ── INPUT ─────────────────────────────────────────────────
+  window.addEventListener('mousemove', e => {
+    mx = e.clientX; my = e.clientY;
+    updateCursor(mx, my);
+
+    if (panning) {
+      view.x += e.movementX;
+      view.y += e.movementY;
+      redraw();
+      return;
+    }
+
+    if (!drawing || !current) return;
+
+    const w = toWorld(mx, my);
+
+    if (current.type === 'pen') {
+      const now = performance.now();
+      const dt = Math.max(1, now - lastPtTime);
+      const dsx = mx - lastPtX, dsy = my - lastPtY;
+      const speed = Math.hypot(dsx, dsy) / dt; // px/ms in screen space
+      // speed ~0 → slightly wider, speed high → slightly thinner
+      // clamp speed 0..2, map to width multiplier 1.18..0.82
+      const t = Math.min(speed / 2, 1);
+      const wMult = 1.18 - t * 0.36;
+      w.w = Math.max(0.4, current.size * wMult);
+      lastPtTime = now; lastPtX = mx; lastPtY = my;
+      current.pts.push(w);
+      redraw();
+    } else if (current.type === 'eraser') {
+      current.pts.push(w);
+      redraw();
+    } else {
+      current._ex = w.x; current._ey = w.y;
+      updateShapeFromDrag(current);
+      redraw();
+    }
+  });
+
+  canvas.addEventListener('pointerdown', e => {
+    if (e.button === 1 || spaceHeld) { // middle or space → pan
+      panning = true;
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.button !== 0) return;
+
+    const w = toWorld(e.clientX, e.clientY);
+
+    if (mode === 'text') {
+      placeTextInput(e.clientX, e.clientY, w);
+      return;
+    }
+
+    drawing = true;
+    undone = [];
+    canvas.setPointerCapture(e.pointerId);
+
+    const color = COLORS[colorIdx];
+    const size  = SIZES[sizeIdx];
+
+    if (mode === 'pen' || mode === 'eraser') {
+      const wp = toWorld(e.clientX, e.clientY);
+      wp.w = size;
+      lastPtTime = performance.now(); lastPtX = e.clientX; lastPtY = e.clientY;
+      current = { type: mode === 'eraser' ? 'eraser' : 'pen', pts: [wp], color, size, opacity: mode === 'eraser' ? 1 : 0.88 };
+    } else {
+      ghostAnchor = w;
+      current = { type: shapeType(), color, size, _ax: w.x, _ay: w.y, _ex: w.x, _ey: w.y };
+      updateShapeFromDrag(current);
+    }
+    redraw();
+  });
+
+  canvas.addEventListener('pointerup', e => {
+    if (panning) { panning = false; return; }
+    if (!drawing) return;
+    drawing = false;
+
+    if (current) {
+      if (current.type === 'pen') {
+        // Commit to strokes; add a brief fade-flash (ink settling shimmer)
+        strokes.push(current);
+        const ghost = { stroke: JSON.parse(JSON.stringify(current)), alpha: 0.28, startTime: performance.now() };
+        fadingStrokes.push(ghost);
+        if (!rafId) rafId = requestAnimationFrame(tickFade);
+      } else {
+        strokes.push(current);
+      }
+      current = null;
+    }
+    redraw();
+  });
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.08 : 0.93;
+    const wx = (e.clientX - view.x) / view.scale;
+    const wy = (e.clientY - view.y) / view.scale;
+    view.scale *= zoomFactor;
+    view.scale = Math.max(0.08, Math.min(10, view.scale));
+    view.x = e.clientX - wx * view.scale;
+    view.y = e.clientY - wy * view.scale;
+    redraw();
+    updateCursor(mx, my);
+  }, { passive: false });
+
+  function shapeType() {
+    if (mode === 'rect')   return 'rect';
+    if (mode === 'circle') return 'circle';
+    if (mode === 'arrow')  return 'arrow';
+    if (mode === 'line')   return 'line';
+    return 'line';
+  }
+
+  function updateShapeFromDrag(s) {
+    const ax = s._ax, ay = s._ay, ex = s._ex, ey = s._ey;
+    if (s.type === 'rect')   { s.x = Math.min(ax,ex); s.y = Math.min(ay,ey); s.w = Math.abs(ex-ax); s.h = Math.abs(ey-ay); }
+    if (s.type === 'circle') { s.cx=(ax+ex)/2; s.cy=(ay+ey)/2; s.rx=Math.abs(ex-ax)/2; s.ry=Math.abs(ey-ay)/2; }
+    if (s.type === 'arrow' || s.type === 'line') { s.x1=ax; s.y1=ay; s.x2=ex; s.y2=ey; }
+  }
+
+  // ── TEXT TOOL ─────────────────────────────────────────────
+  let textActive = false; // true while textarea is live
+
+  function placeTextInput(sx, sy, w) {
+    if (textActive) { commitText(); }
+    const fontSize = Math.max(12, SIZES[sizeIdx] * 5);
+    textInput.style.left       = sx + 'px';
+    textInput.style.top        = sy + 'px';
+    textInput.style.fontSize   = (fontSize * view.scale) + 'px';
+    textInput.style.lineHeight = '1.55';
+    textInput.style.display    = 'block';
+    textInput.style.color      = COLORS[colorIdx];
+    textInput.style.width      = '520px';
+    textInput.style.height     = (fontSize * view.scale * 1.55) + 'px';
+    textInput.value = '';
+    textNode = { wx: w.x, wy: w.y + fontSize, fontSize, color: COLORS[colorIdx] };
+    textActive = true;
+    requestAnimationFrame(() => { textInput.focus(); autoResizeText(); });
+  }
+
+  textInput.addEventListener('keydown', e => {
+    e.stopPropagation(); // never leak to global handler
+    if (e.key === 'Escape') { e.preventDefault(); commitText(); return; }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const TAB = '  ';
+      const ta = textInput;
+      const start = ta.selectionStart, end = ta.selectionEnd;
+      const val = ta.value;
+      if (e.shiftKey) {
+        const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+        const lineEnd   = val.indexOf('\n', end);
+        const region    = val.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+        const dedented  = region.replace(/^  /gm, '');
+        const diff      = region.length - dedented.length;
+        ta.value = val.slice(0, lineStart) + dedented + (lineEnd === -1 ? '' : val.slice(lineEnd));
+        ta.selectionStart = Math.max(lineStart, start - 2);
+        ta.selectionEnd   = Math.max(lineStart, end - diff);
+      } else {
+        if (start === end) {
+          ta.value = val.slice(0, start) + TAB + val.slice(end);
+          ta.selectionStart = ta.selectionEnd = start + TAB.length;
+        } else {
+          const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+          const lineEnd   = val.indexOf('\n', end);
+          const region    = val.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+          const indented  = region.replace(/^/gm, TAB);
+          const added     = indented.length - region.length;
+          ta.value = val.slice(0, lineStart) + indented + (lineEnd === -1 ? '' : val.slice(lineEnd));
+          ta.selectionStart = start + TAB.length;
+          ta.selectionEnd   = end + added;
+        }
+      }
+      setTimeout(autoResizeText, 0);
+      return;
+    }
+    setTimeout(autoResizeText, 0);
+  });
+
+  // Clicking outside the textarea commits it (capture phase = before canvas sees it)
+  document.addEventListener('pointerdown', e => {
+    if (textActive && e.target !== textInput) commitText();
+  }, true);
+
+  // Mirror div for glitch-free height measurement
+  const textMirror = document.createElement('div');
+  Object.assign(textMirror.style, {
+    position: 'fixed', visibility: 'hidden', pointerEvents: 'none',
+    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+    fontFamily: 'JetBrains Mono, monospace', lineHeight: '1.55',
+    padding: '0', border: 'none', top: '-9999px', left: '-9999px',
+  });
+  document.body.appendChild(textMirror);
+
+  function autoResizeText() {
+    // Sync mirror font size and width, measure, apply — no layout thrash on textarea
+    textMirror.style.fontSize = textInput.style.fontSize;
+    textMirror.style.width    = textInput.style.width;
+    textMirror.textContent    = textInput.value + '\n'; // trailing \n keeps last empty line
+    const h = textMirror.offsetHeight;
+    textInput.style.height = h + 'px';
+  }
+
+  function commitText() {
+    if (!textActive) return;
+    textActive = false;
+    const val = textInput.value.replace(/\n+$/, '');
+    if (val && textNode) {
+      strokes.push({ type:'text', text: val, x: textNode.wx, y: textNode.wy,
+                     fontSize: textNode.fontSize, color: textNode.color });
+      undone = [];
+      redraw();
+    }
+    textInput.style.display = 'none';
+    textInput.value = '';
+    textNode = null;
+  }
+
+  // ── KEYBOARD ──────────────────────────────────────────────
+  window.addEventListener('keydown', e => {
+    // Text input's own keydown handler calls stopPropagation, so this only
+    // fires when the textarea is NOT active. Guard here is just a safety net.
+    if (textActive) return;
+
+    if (e.key === 'Tab') { e.preventDefault(); toggleKeys(); return; }
+    if (keysPanel.classList.contains('open') && e.key === 'Escape') { closeKeys(); return; }
+    if (keysPanel.classList.contains('open')) return; // eat all keys while modal open
+
+    if (e.key === ' ') { e.preventDefault(); spaceHeld = true; return; }
+
+    const isMeta = e.metaKey || e.ctrlKey;
+
+    if (isMeta && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+    if (isMeta && (e.key === 'Z' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
+    if (isMeta && e.key === 'a') { e.preventDefault(); clearBoard(); return; }
+
+    if (e.key === '0') { view = {x:0,y:0,scale:1}; redraw(); return; }
+    if (e.key === '[') { sizeIdx = Math.max(0, sizeIdx-1); buildSizeEl(); showHud(); updateCursor(mx,my); return; }
+    if (e.key === ']') { sizeIdx = Math.min(SIZES.length-1, sizeIdx+1); buildSizeEl(); showHud(); updateCursor(mx,my); return; }
+
+    const modeMap = { p:'pen', e:'eraser', t:'text', r:'rect', o:'circle', a:'arrow', l:'line' };
+    if (modeMap[e.key]) { mode = modeMap[e.key]; showHud(); updateCursor(mx,my); return; }
+
+    const ci = parseInt(e.key) - 1;
+    if (ci >= 0 && ci < COLORS.length) { colorIdx = ci; buildColorEl(); showHud(); return; }
+  });
+
+  window.addEventListener('keyup', e => {
+    if (e.key === ' ') { spaceHeld = false; panning = false; }
+  });
+
+  // ── UNDO / REDO ───────────────────────────────────────────
+  function undo() {
+    if (!strokes.length) return;
+    undone.push(strokes.pop());
+    redraw();
+    flashUndo();
+  }
+  function redo() {
+    if (!undone.length) return;
+    strokes.push(undone.pop());
+    redraw();
+  }
+  function clearBoard() {
+    undone = [...strokes];
+    strokes = [];
+    redraw();
+  }
+  function flashUndo() {
+    undoFlash.style.opacity = '1';
+    setTimeout(() => { undoFlash.style.opacity = '0'; }, 80);
+  }
+
+  // ── INIT HUD REVEAL ───────────────────────────────────────
+  setTimeout(() => { showHud(); }, 300);
+
+  // ── PREVENT CONTEXT MENU ──────────────────────────────────
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  // ── INITIAL DRAW ─────────────────────────────────────────
+  redraw();
+})();
+</script>
+</body>
+</html>
